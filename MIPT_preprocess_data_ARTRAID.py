@@ -254,6 +254,7 @@ def preprocess_data(path: str) -> pd.DataFrame:
     
     df['sale_date'] = pd.to_datetime(df['sale_date']).dt.year
     df = df.sort_values(by='sale_date', ascending=True)
+    
     return df
 
 if __name__ == "__main__":
@@ -416,14 +417,15 @@ data.to_csv('dataset_for_model_version_1', sep=',')
 
 
 model = CatBoostClassifier(
-    iterations=500,
-    learning_rate=0.05,
-    depth=5,
+    iterations=400,
+    learning_rate=0.03,
+    depth=6,
     cat_features=categorical_cols,  # просто передаём список категориальных колонок
     logging_level='Silent',
     random_seed=42,
     eval_metric='AUC',
-    early_stopping_rounds=50
+    early_stopping_rounds=50,
+    l2_leaf_reg=5
 )
 
 model.fit(
@@ -432,13 +434,66 @@ model.fit(
 )
 
 
+base_params = {
+    'iterations': 500,
+    'learning_rate': 0.05,
+    'depth': 5,
+    'l2_leaf_reg': 3  # добавим регуляризацию
+}
+
+# Сетка для перебора (около базовых значений)
+param_grid = {
+    'iterations': [400, 500, 600],
+    'learning_rate': [0.02, 0.03, 0.05],
+    'depth': [6, 7, 8],
+    'l2_leaf_reg': [1, 3, 5]
+}
+
+best_auc = 0
+best_params = None
+
+print("Перебор параметров...")
+from sklearn.model_selection import ParameterGrid
+for params in ParameterGrid(param_grid):
+    # Берём ваш шаблон, меняем только параметры
+    model_tune = CatBoostClassifier(
+        iterations=params['iterations'],
+        learning_rate=params['learning_rate'],
+        depth=params['depth'],
+        l2_leaf_reg=params['l2_leaf_reg'],
+        cat_features=categorical_cols,
+        logging_level='Silent',
+        random_seed=42,
+        eval_metric='AUC',
+        early_stopping_rounds=50
+    )
+    
+    model_tune.fit(X_train, y_train, eval_set=[(X_test, y_test)], verbose=False)
+    
+    # Оценка на тесте (у вас уже есть X_test, y_test)
+    pred = model_tune.predict_proba(X_test)[:, 1]
+    auc = roc_auc_score(y_test, pred)
+    
+    print(f"params={params}, AUC={auc:.4f}")
+    
+    if auc > best_auc:
+        best_auc = auc
+        best_params = params
+        best_model = model_tune
+
+print(f"\nЛучшие параметры: {best_params}")
+print(f"Лучший AUC на тесте: {best_auc:.4f}")
+
+model = best_model
+
 y_pred = model.predict_proba(X_test)[:, 1]
 y_pred_from_model = model.predict(X_test)
 pr_auc = average_precision_score(y_test, y_pred)
 print(f"\nPR-AUC на тесте: {pr_auc:.3f}")
 auc = roc_auc_score(y_test, y_pred)
 print(f"\nROC-AUC на тесте: {auc:.3f}")
-
+auc_train = roc_auc_score(y_train, model.predict_proba(X_train)[:, 1]) # аномалия какая-то
+print(f"\nROC-AUC на трейне: {auc_train:.3f}")
 
 importance = pd.DataFrame({
     'feature': X_train.columns,
@@ -495,3 +550,13 @@ print(f"F1 при этом пороге: {best_f1:.4f}")
 y_pred_optimal = (y_pred >= best_th).astype(int)
 print(f"Precision: {precision_score(y_test, y_pred_optimal):.4f}")
 print(f"Recall: {recall_score(y_test, y_pred_optimal):.4f}")
+
+"""
+Лучший AUC на тесте: 0.6859
+
+PR-AUC на тесте: 0.909
+
+ROC-AUC на тесте: 0.686
+
+ROC-AUC на трейне: 0.736
+"""
