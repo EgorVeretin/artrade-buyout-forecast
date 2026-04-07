@@ -2,6 +2,12 @@ import re
 from collections import Counter
 import pandas as pd
 import numpy as np
+from sklearn.metrics import f1_score, precision_score, recall_score
+from catboost import CatBoostClassifier
+from sklearn.metrics import average_precision_score, roc_auc_score
+from sklearn.calibration import calibration_curve
+import matplotlib.pyplot as plt
+from sklearn.metrics import roc_curve
 
 DANGER_COLUMNS = [
     'contact_created_at', 'contact_updated_at', 'contact_Телефон', 'lead_Комментарий',
@@ -276,7 +282,7 @@ print(categorical_cols)
  'lead_Категория и варианты выбора', 'lead_Квалификация лида', 'lead_utm_group', 
  'lead_Служба доставки', 'lead_responsible_user_id', 'lead_utm_source']
 """
-
+"""
 data['lead_Проблема'].value_counts() # OHE топ-5
 data['contact_responsible_user_id'].value_counts() # OHE топ-5
 data['lead_Вес (грамм)*'].value_counts() # сразу в OHE
@@ -287,13 +293,14 @@ data['lead_utm_group'].value_counts() # OHE топ-5
 data['lead_Служба доставки'].value_counts() # OHE топ-5
 data['lead_responsible_user_id'].value_counts() # OHE топ-5
 data['lead_utm_source'].value_counts() # OHE топ-5
+"""
 
 features_categorical_data = {
     'features_OHE_top_5' : ['lead_Проблема', 'contact_responsible_user_id', 'lead_utm_group',
                           'lead_Служба доставки', 'lead_responsible_user_id', 'lead_utm_source'],
     'features_OHE_top_10' : ['contact_Город'],
     'features_OHE' : ['lead_Вес (грамм)*', 'lead_Категория и варианты выбора', 'lead_Квалификация лида']
-    }
+    } # для кастома - но пока автоматическое в CatBoost
 
 # разбиение колонок в итоге!
 print(numeric_cols)
@@ -374,30 +381,44 @@ def create_top_features_from_lists(train_df, test_df, column_name, top_n=10):
 X_train, X_test = create_top_features_from_lists(X_train, X_test, 'articles', top_n=10)
 X_train, X_test = create_top_features_from_lists(X_train, X_test, 'lead_tags', top_n=10)
 
+categorical_cols_final = X_train.select_dtypes(include='object').columns.to_list()
+numeric_cols_final = X_train.select_dtypes(exclude='object').columns.to_list()
+
 # Заполняем пропуски
-X_train.loc[:, 'days_sale_to_handed'] = X_train['days_sale_to_handed'].fillna(X_train['days_sale_to_handed'].median())
-X_test.loc[:, 'days_sale_to_handed'] = X_test['days_sale_to_handed'].fillna(X_train['days_sale_to_handed'].median())
+def transform_nan_values(X_train: pd.DataFrame,X_test: pd.DataFrame, categorical_cols: list, numeric_cols: list) -> tuple:
+    X_train_copy = X_train.copy()
+    X_test_copy = X_test.copy()
+    
+    for cat in categorical_cols:
+        X_train_copy[cat] = X_train_copy[cat].fillna(X_train_copy[cat].mode()[0])
+        X_test_copy[cat] = X_test_copy[cat].fillna(X_test_copy[cat].mode()[0])
+    
+    # учтем бинарность некоторых фичей
+    list_binary_cols = []
+    for col in numeric_cols_final:
+        if len(X_train[col].value_counts().index) <= 5:
+            list_binary_cols.append(col)
 
-X_train.loc[:, 'lead_Проблема'] = X_train['lead_Проблема'].fillna(X_train['lead_Проблема'].mode()[0])
-X_test.loc[:, 'lead_Проблема'] = X_test['lead_Проблема'].fillna(X_train['lead_Проблема'].mode()[0])
+    for num in numeric_cols:
+        if num in list_binary_cols:
+            X_train_copy[num] = X_train_copy[num].fillna(X_train_copy[num].mode()[0])
+            X_test_copy[num] = X_test_copy[num].fillna(X_test_copy[num].mode()[0])
+        else:
+            X_train_copy[num] = X_train_copy[num].fillna(X_train_copy[num].mean())
+            X_test_copy[num] = X_test_copy[num].fillna(X_test_copy[num].mean())
 
-X_train.loc[:, 'contact_Город'] = X_train['contact_Город'].fillna(X_train['contact_Город'].mode()[0])
-X_test.loc[:, 'contact_Город'] = X_test['contact_Город'].fillna(X_train['contact_Город'].mode()[0])
+    return X_train_copy, X_test_copy
 
-X_train.loc[:, 'lead_Служба доставки'] = X_train['lead_Служба доставки'].\
-    fillna(X_train['lead_Служба доставки'].mode()[0])
-X_train.loc[:, 'contact_responsible_user_id'] = X_train['contact_responsible_user_id'].\
-    fillna(X_train['contact_responsible_user_id'].mode()[0])
+X_train, X_test = transform_nan_values(X_train, X_test, categorical_cols_final, numeric_cols_final)
 
 # сохранение винальной версии датасета! (на 05.04.2026)
 data.to_csv('dataset_for_model_version_1', sep=',')
 
-from catboost import CatBoostClassifier
 
 model = CatBoostClassifier(
     iterations=500,
-    learning_rate=0.03,
-    depth=6,
+    learning_rate=0.05,
+    depth=5,
     cat_features=categorical_cols,  # просто передаём список категориальных колонок
     logging_level='Silent',
     random_seed=42,
@@ -410,7 +431,7 @@ model.fit(
     eval_set=[(X_test, y_test)]
 )
 
-from sklearn.metrics import average_precision_score, roc_auc_score
+
 y_pred = model.predict_proba(X_test)[:, 1]
 y_pred_from_model = model.predict(X_test)
 pr_auc = average_precision_score(y_test, y_pred)
@@ -418,7 +439,7 @@ print(f"\nPR-AUC на тесте: {pr_auc:.3f}")
 auc = roc_auc_score(y_test, y_pred)
 print(f"\nROC-AUC на тесте: {auc:.3f}")
 
-import pandas as pd
+
 importance = pd.DataFrame({
     'feature': X_train.columns,
     'importance': model.feature_importances_
@@ -428,8 +449,6 @@ print("\nТоп-10 важных признаков:")
 print(importance.head(10).to_string(index=False))
 
 
-from sklearn.calibration import calibration_curve
-import matplotlib.pyplot as plt
 
 prob_true, prob_pred = calibration_curve(y_test, y_pred, n_bins=10)
 
@@ -445,7 +464,7 @@ plt.show()
 print(f"\nПредсказания: min={y_pred.min():.3f}, max={y_pred.max():.3f}, mean={y_pred.mean():.3f}")
 print(f"Реальное среднее: {y_test.mean():.3f}")
 
-from sklearn.metrics import roc_curve
+
 fpr, tpr, _ = roc_curve(y_test, y_pred)
 
 plt.figure(figsize=(8,6))
@@ -457,9 +476,6 @@ plt.title('ROC Curve')
 plt.legend()
 plt.show()
 
-
-
-from sklearn.metrics import f1_score, precision_score, recall_score
 
 thresholds = np.arange(0.1, 0.9, 0.02)
 best_th = 0.5
