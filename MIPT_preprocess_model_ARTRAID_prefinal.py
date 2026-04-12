@@ -8,18 +8,19 @@ from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.calibration import calibration_curve
 import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve
+from sklearn.model_selection import TimeSeriesSplit
 
 DANGER_COLUMNS = [
-    'contact_created_at', 'contact_updated_at', 'contact_Телефон', 'lead_Комментарий',
+    'contact_Телефон', 'lead_Комментарий', 'contact_updated_at',
     'contact_name', 'contact_first_name', 'handed_to_delivery_ts', 'lead_COOKIES',
      'lead_Тариф Доставки', 'lead_Компания Отправитель', 'lead_Вид оплаты','lead_name',
     'lead_TRANID', 'lead_account_id', 'lead_closed_at', 'lead_updated_at',
     'lead_created_at', 'lead_loss_reason_id', 'rejected_ts', 'returned_ts',
     'outcome_unknown', 'sale_ts', 'lead_is_deleted', 'lead_status_id',
-    'current_status_id', 'issued_or_pvz_ts', 'received_ts', 'days_handed_to_issued_pvz', 
-    'days_to_outcome', 'closed_ts', 'lead_pipeline_id', 'lead_Дата создания сделки',
-    'lead_Дата перехода в Сборку', 'lead_Дата получения денег на Р/С', 'contact_id', 'contact_Адрес ПВЗ',
-    'contact_Код ПВЗ', 'lead_utm_term', 'lead_utm_campaign', 'lead_utm_sky', 'lead_utm_referrer', 
+    'current_status_id', 'issued_or_pvz_ts', 'received_ts', 'contact_id', 'lead_utm_campaign',
+    'closed_ts', 'lead_pipeline_id', 'lead_Дата создания сделки', 'days_to_outcome',
+    'lead_Дата перехода в Сборку', 'lead_Дата получения денег на Р/С', 'contact_Адрес ПВЗ',
+    'contact_Код ПВЗ', 'lead_utm_term', 'lead_utm_sky', 'lead_utm_referrer', 
     'lead_Дата перехода Передан в доставку', 'lifecycle_incomplete', 'lead_utm_medium', 'lead_utm_content',
     'lead_roistat', 'lead__ym_uid', 'lead_yclid', 'lead_Трек-номер СДЭК', 'contact_LTV'
 ]
@@ -149,7 +150,6 @@ def transform_lead_qualification(text: str) -> str:
     else:
         return text
 
-
 def enrich_data(df: pd.DataFrame) -> pd.DataFrame:
     """Добавляет колонки с артикулами и стоимостью"""
     df = df.copy()
@@ -178,65 +178,46 @@ def get_top_tags(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
 
 def preprocess_data(path: str) -> pd.DataFrame:
     """Надстройка для основного пайплайна"""
-    #print("1. Загрузка данных...")
+   
     df = read_data(path)
-    #print(f"   Загружено {df.shape[0]} строк, {df.shape[1]} колонок")
-    
-    #print("2. Удаление лишних колонок...")
+   
     df = delete_null_and_danger_columns(df)
-    #print(f"   Осталось {df.shape[1]} колонок")
     
-    #print("3. Преобразование дат...")
     df = find_and_convert_datetime_columns(df)
     
-    #print("4. Обогащение данных (артикулы, стоимость)...")
     df = enrich_data(df)
     
-    #print("5. Преобразование целевой переменной (buyout_flag)...")
     df = df[~df['buyout_flag'].isna()]
     
     df['buyout_flag'] = df['buyout_flag'].astype('float')
     
-    #print("6. Извлечение информации из тэгов...")
     df['lead_tags'] = df['lead_tags'].map(parcing_data_from_tags_column)
     
-    #print("7. Преобразование веса (граммы) в категориальные переменные...")
     df['lead_Вес (грамм)*'] = df['lead_Вес (грамм)*'].map(transform_weight_to_category)
     
-    #print("8. Преобразуем 'lead_Модель телефона' в бинарный признак...")
     df['lead_Модель телефона'] = df['lead_Модель телефона'].map(make_feature_binary)
     
-    #print("9. Преобразуем 'lead_будущие покупки' в бинарный признак...")
     df['lead_будущие покупки'] = df['lead_будущие покупки'].map(make_feature_binary)
     
-    #print("10. Преобразуем колонку 'lead_Квалификация лида'...")
     df['lead_Квалификация лида'] = df['lead_Квалификация лида'].map(transform_lead_qualification)
     
-    #print("11. Бинаризация признака lead_FORMID...")
     df['lead_FORMID'] = np.where(df['lead_FORMID'].isna(), 0, 1)
     
-    #print("12. Бинаризация признака lead_REFERER...")    
     df['lead_REFERER'] = np.where(df['lead_REFERER'].isna(), 0, 1)
     
-    #print("13. Обработка признака lead_utm_source...")
     df['lead_utm_source'] = df['lead_utm_source'].fillna('Неизвестно')
     
-    #print("14. Обработка признака contact_Число сделок...")
     df['contact_Число сделок'] = df['contact_Число сделок'].fillna(1)
     
-    #print("16. Обработка признака lead_Категория и варианты выбора...")
     df['lead_Категория и варианты выбора'] = df['lead_Категория и варианты выбора'].fillna('Нет категории')
     
-    #print("17. Обработаем колонку размеров - введем относительный размер...")
     max_dim = df[['lead_Длина', 'lead_Ширина', 'lead_Высота']].max(axis=1)
     min_dim = df[['lead_Длина', 'lead_Ширина', 'lead_Высота']].min(axis=1)
     df['size_ratio'] = np.where(min_dim > 0, max_dim / min_dim, 0)
     df.drop(['lead_Длина', 'lead_Ширина', 'lead_Высота'], inplace=True, axis=1)
     
-    #print("Обработаем пропуски в данной графе lead_utm_group...")
     df['lead_utm_group'] = df['lead_utm_group'].fillna('unknown_status')
     
-    #print("Обработаем пропуски в колонке lead_FORMNAME...")
     df['lead_FORMNAME'] = np.where(df['lead_FORMNAME'].isna(), 0, 1)
     
     df.loc[df['delivery_cost']==0, 'discount'] = 1
@@ -251,23 +232,64 @@ def preprocess_data(path: str) -> pd.DataFrame:
     df['cost_without_delivery'] = df['cost_with_delivery'] - df['delivery_cost']
     df.drop('cost_with_delivery', axis=1, inplace=True)
     
+    sale_date = pd.to_datetime(df['sale_date'])
+    contact_created = pd.to_datetime(df['contact_created_at'])
+    df['customer_tenure_days_frac'] = (sale_date - contact_created).dt.total_seconds() / (24 * 3600)
+    df.loc[df['customer_tenure_days_frac'] < 0, 'customer_tenure_days_frac'] = 0
+        
+    df['is_same_day'] = (df['sale_date'] == df['contact_created_at']).astype(int)
     
     df['sale_date'] = pd.to_datetime(df['sale_date']).dt.year
     df = df.sort_values(by='sale_date', ascending=True)
+
+    df['contact_deals_bin'] = pd.cut(df['contact_Число сделок'], 
+                                   bins=[0, 1, 3, 6, 10, np.inf], 
+                                   labels=['0', '1-2', '3-5', '6-10', '10+']).astype('str')
+    
+    df['deals_x_weight'] = df['contact_Число сделок'] * df['lead_Вес (грамм)*'].map({'light':1, 'medium':2, 'heavy':3})
+    df['deals_x_delivery'] = df['contact_Число сделок'].astype(str) + '_' + df['lead_Служба доставки']
+    
+    threshold_price = df['cost_without_delivery'].quantile(0.75)
+    df['has_expensive_item'] = (df['cost_without_delivery'] > threshold_price).astype(int)
+
+    df['delivery_cost_ratio'] = df['delivery_cost'] / (df['cost_without_delivery'] + 1)
+    
+    # прокси-признак
+    df['sale_dayofweek'] = pd.to_datetime(df['sale_date']).dt.dayofweek
+    
+    # прокси-признак
+    df['sale_month'] = pd.to_datetime(df['sale_date']).dt.month
+    
+    # прокси-признак
+    df['sale_is_weekend'] = (df['sale_dayofweek'] >= 5).astype(int)
+    
+    df['deals_log'] = np.log1p(df['contact_Число сделок'])
+    
+    df['deals_x_city'] = df['contact_Число сделок'].astype(str) + '_' + df['contact_Город'].astype(str)
+    
+    df['is_payday_period'] = pd.to_datetime(df['sale_date']).dt.day.between(1, 5) | \
+        pd.to_datetime(df['sale_date']).dt.day.between(25, 31)
+    df['is_payday_period'] = df['is_payday_period'].astype(int)
+    
+    df['days_handed_to_issued_pvz'] = df['days_handed_to_issued_pvz'].map(lambda x: abs(x))
+    df['log_days_handed_to_issued_pvz'] = np.log1p(df['days_handed_to_issued_pvz'])
+    df.drop('days_handed_to_issued_pvz', axis=1, inplace=True)
     
     return df
 
 if __name__ == "__main__":
+    #PATH_TO_FILE = "MIPT_hackathon_dataset.csv" (не использовать старый датасет!)
     PATH_TO_FILE = "dataset_2025-03-01_2026-03-29_external.csv"
     
     data = preprocess_data(PATH_TO_FILE)
-    
+        
     top_articles = get_top_articles(data, top_n=10)
     print(top_articles)
     
     top_tags = get_top_tags(data, top_n=10)
     print(top_tags)
 
+data.columns
 data = data.set_index('lead_id', drop='first')
 data.to_csv('clear_data_for_train_test_split.csv', sep=',') # для аналитика!
 
@@ -276,39 +298,9 @@ numeric_cols = data.select_dtypes(exclude='object').columns.to_list()
 special_cols = ['articles', 'lead_tags']
 categorical_cols = list(set(categorical_cols) - set(special_cols))
 
-
-"""
-print(categorical_cols)
-['lead_Проблема', 'contact_responsible_user_id', 'lead_Вес (грамм)*', 'contact_Город', 
- 'lead_Категория и варианты выбора', 'lead_Квалификация лида', 'lead_utm_group', 
- 'lead_Служба доставки', 'lead_responsible_user_id', 'lead_utm_source']
-"""
-"""
-data['lead_Проблема'].value_counts() # OHE топ-5
-data['contact_responsible_user_id'].value_counts() # OHE топ-5
-data['lead_Вес (грамм)*'].value_counts() # сразу в OHE
-data['contact_Город'].value_counts() # OHE топ-10
-data['lead_Категория и варианты выбора'].value_counts() # сразу OHE 
-data['lead_Квалификация лида'].value_counts() # сразу в OHE 
-data['lead_utm_group'].value_counts() # OHE топ-5
-data['lead_Служба доставки'].value_counts() # OHE топ-5
-data['lead_responsible_user_id'].value_counts() # OHE топ-5
-data['lead_utm_source'].value_counts() # OHE топ-5
-"""
-
-features_categorical_data = {
-    'features_OHE_top_5' : ['lead_Проблема', 'contact_responsible_user_id', 'lead_utm_group',
-                          'lead_Служба доставки', 'lead_responsible_user_id', 'lead_utm_source'],
-    'features_OHE_top_10' : ['contact_Город'],
-    'features_OHE' : ['lead_Вес (грамм)*', 'lead_Категория и варианты выбора', 'lead_Квалификация лида']
-    } # для кастома - но пока автоматическое в CatBoost
-
-# разбиение колонок в итоге!
 print(numeric_cols)
 print(special_cols)
-print(features_categorical_data)
 
-# начинаем загрузку в модель
 data_2025 = data.loc[data['sale_date'] == 2025,:]
 data_2026 = data.loc[data['sale_date']==2026,:]
 
@@ -316,7 +308,6 @@ X_train = data_2025.drop('buyout_flag', axis=1)
 X_test = data_2026.drop('buyout_flag', axis=1)
 y_train = data_2025['buyout_flag']
 y_test = data_2026['buyout_flag']
-
 
 def create_top_features_from_lists(train_df, test_df, column_name, top_n=10):
     """
@@ -412,15 +403,12 @@ def transform_nan_values(X_train: pd.DataFrame,X_test: pd.DataFrame, categorical
 
 X_train, X_test = transform_nan_values(X_train, X_test, categorical_cols_final, numeric_cols_final)
 
-# сохранение винальной версии датасета! (на 05.04.2026)
-data.to_csv('dataset_for_model_version_1', sep=',')
-
-
 model = CatBoostClassifier(
     iterations=400,
     learning_rate=0.03,
     depth=6,
-    cat_features=categorical_cols,  # просто передаём список категориальных колонок
+    cat_features=categorical_cols,
+    auto_class_weights='Balanced',
     logging_level='Silent',
     random_seed=42,
     eval_metric='AUC',
@@ -443,7 +431,7 @@ base_params = {
 
 # Сетка для перебора (около базовых значений)
 param_grid = {
-    'iterations': [400, 500, 600],
+    'iterations': [400, 600, 700],
     'learning_rate': [0.02, 0.03, 0.05],
     'depth': [6, 7, 8],
     'l2_leaf_reg': [1, 3, 5]
@@ -503,8 +491,6 @@ importance = pd.DataFrame({
 print("\nТоп-10 важных признаков:")
 print(importance.head(10).to_string(index=False))
 
-
-
 prob_true, prob_pred = calibration_curve(y_test, y_pred, n_bins=10)
 
 plt.figure(figsize=(6,6))
@@ -546,17 +532,66 @@ for th in thresholds:
 print(f"Оптимальный порог: {best_th:.2f}")
 print(f"F1 при этом пороге: {best_f1:.4f}")
 
-# Посчитай все метрики при лучшем пороге
+# лучший порог - для калибровки 
 y_pred_optimal = (y_pred >= best_th).astype(int)
 print(f"Precision: {precision_score(y_test, y_pred_optimal):.4f}")
 print(f"Recall: {recall_score(y_test, y_pred_optimal):.4f}")
 
-"""
-Лучший AUC на тесте: 0.6859
 
-PR-AUC на тесте: 0.909
+# Твои данные уже отсортированы по времени (2025 -> 2026)
+# Для CV используем только 2025 год
+X_train_cv = X_train.copy()
+y_train_cv = y_train.copy()
 
-ROC-AUC на тесте: 0.686
+# TimeSeriesSplit 
+tscv = TimeSeriesSplit(n_splits=20, gap=30)  # gap - отступ между фолдами
 
-ROC-AUC на трейне: 0.736
-"""
+cv_scores = []
+for fold, (train_idx, val_idx) in enumerate(tscv.split(X_train_cv)):
+    print(f"Fold {fold + 1}: train {len(train_idx)}, val {len(val_idx)}")
+    
+    model.fit(
+        X_train_cv.iloc[train_idx], 
+        y_train_cv.iloc[train_idx],
+        eval_set=[(X_train_cv.iloc[val_idx], y_train_cv.iloc[val_idx])],
+        verbose=False
+    )
+    
+    pred = model.predict_proba(X_train_cv.iloc[val_idx])[:, 1]
+    auc = roc_auc_score(y_train_cv.iloc[val_idx], pred)
+    cv_scores.append(auc)
+    print(y_train_cv.iloc[train_idx].value_counts(normalize=True))
+    print(f"  AUC: {auc:.4f}")
+print(np.mean(cv_scores))
+
+# высокая стабильность на кросс-валидации
+# Вместо жёсткого порога 0.7 используем персентиль
+threshold_70_percentile = np.percentile(y_pred, 70)
+print(f"70-й персентиль предсказаний: {threshold_70_percentile:.3f}") # как альтернатива калибровке
+
+precision_score(y_test, (y_pred >= threshold_70_percentile).astype(int)) # используем адаптивную вероятность
+recall_score(y_test, (y_pred >= threshold_70_percentile).astype(int))
+
+from sklearn.calibration import CalibratedClassifierCV
+
+# Обучаем калиброванный классификатор
+calibrated_cb = CalibratedClassifierCV(
+    model, 
+    method='sigmoid',
+    cv=3
+)
+calibrated_cb.fit(X_train, y_train)
+
+# Калиброванные вероятности
+y_pred_calibrated = calibrated_cb.predict_proba(X_test)[:, 1]
+
+# Проверяем калибровку - изотоническая калибровка хуже
+prob_true_calibrated, prob_pred_calibrated = calibration_curve(y_test, y_pred_calibrated, n_bins=10)
+plt.figure(figsize=(6,6))
+plt.plot(prob_pred_calibrated, prob_true_calibrated, marker='o', label='CatBoost with calibrated')
+plt.plot([0, 1], [0, 1], '--', label='Perfect')
+plt.xlabel('Predicted probability with calibration')
+plt.ylabel('Actual probability')
+plt.title('Calibration plot after preprocess sigmoid calibration')
+plt.legend()
+plt.show()
