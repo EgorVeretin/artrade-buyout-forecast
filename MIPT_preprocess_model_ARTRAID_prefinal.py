@@ -9,6 +9,8 @@ from sklearn.calibration import calibration_curve
 import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve
 from sklearn.model_selection import TimeSeriesSplit
+from sklearn.model_selection import ParameterGrid
+from sklearn.calibration import CalibratedClassifierCV
 
 DANGER_COLUMNS = [
     'contact_Телефон', 'lead_Комментарий', 'contact_updated_at',
@@ -280,6 +282,7 @@ def preprocess_data(path: str) -> pd.DataFrame:
 if __name__ == "__main__":
     #PATH_TO_FILE = "MIPT_hackathon_dataset.csv" (не использовать старый датасет!)
     PATH_TO_FILE = "dataset_2025-03-01_2026-03-29_external.csv"
+    print(f"Путь до обновленного файла {PATH_TO_FILE}...")
     
     data = preprocess_data(PATH_TO_FILE)
         
@@ -441,7 +444,6 @@ best_auc = 0
 best_params = None
 
 print("Перебор параметров...")
-from sklearn.model_selection import ParameterGrid
 for params in ParameterGrid(param_grid):
     # Берём ваш шаблон, меняем только параметры
     model_tune = CatBoostClassifier(
@@ -571,8 +573,6 @@ print(f"70-й персентиль предсказаний: {threshold_70_perce
 
 precision_score(y_test, (y_pred >= threshold_70_percentile).astype(int)) # используем адаптивную вероятность
 recall_score(y_test, (y_pred >= threshold_70_percentile).astype(int))
-
-from sklearn.calibration import CalibratedClassifierCV
 
 # Обучаем калиброванный классификатор
 calibrated_cb = CalibratedClassifierCV(
