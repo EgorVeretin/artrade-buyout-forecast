@@ -83,14 +83,13 @@ def find_and_convert_datetime_columns(df: pd.DataFrame) -> pd.DataFrame:
     
     # важный момент 
     exclude_keywords = ['доставк', 'тариф', 'служба', 'вид оплаты', 'оплаты']
-    # Паттерны для поиска
+    
     time_patterns = \
         r'_ts$|_at$|time|date|день|дата|создан|обновлен|закрыт|переход|получен|выдан|доставк|возврат|сборк|продаж'
     
     for col in df.columns:
         col_lower = col.lower()
         
-        # спасибо за проверку - будь внимательнее!
         # проверка на содержание в коде информации по доставке не в формате timestamp / date 
         if any(kw in col_lower for kw in exclude_keywords):
             continue
@@ -280,7 +279,6 @@ def preprocess_data(path: str) -> pd.DataFrame:
     return df
 
 if __name__ == "__main__":
-    #PATH_TO_FILE = "MIPT_hackathon_dataset.csv" (не использовать старый датасет!)
     PATH_TO_FILE = "dataset_2025-03-01_2026-03-29_external.csv"
     print(f"Путь до обновленного файла {PATH_TO_FILE}...")
     
