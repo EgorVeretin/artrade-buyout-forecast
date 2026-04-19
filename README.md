@@ -45,10 +45,11 @@
     'l2_leaf_reg': 3,
     'learning_rate': 0.03
 }
+```
 
 ### Вариант с демо-версией пайплайна:
 *MIPT_preprocess_model_ARTRAID_prefinal.py*
-
+```text
 ML/
 │
 ├── dataset_2025-03-01_2026-03-29_external.csv   # ИСХОДНЫЕ ДАННЫЕ (обучение и первичная калибровка модели)
@@ -73,9 +74,9 @@ ML/
 │
 ├── predictions.csv            # создаётся после main.py
 └── new_predictions.csv        # создаётся после give_new_predictions.py (позволяет оценить веротяности через перцентиль)
-
+```
 ## 🔗 Иерархия вызовов
-
+```text
 main.py
   ├── data_loader.py
   ├── preprocessors.py
@@ -89,7 +90,7 @@ main.py
   │     └── config.py
   └── save_pipeline.py
         └── config.py
-
+```
 ## 📂 Форматы данных
 
 ### Входные данные (CSV)
