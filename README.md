@@ -97,9 +97,35 @@ main.py
 Должны содержать колонки, описанные в `config.py` (DANGER_COLUMNS будут удалены автоматически).
 
 Обязательные колонки:
-- `lead_id` — идентификатор заказа
-- `buyout_flag` — целевая переменная (1 — выкуп, 0 — отказ) — нужна только для обучения
-- `lead_Состав заказа` — текстовое описание для извлечения артикулов и цен
+```python
+{'buyout_flag',
+ 'contact_responsible_user_id',
+ 'contact_Город',
+ 'contact_Число сделок',
+ 'days_sale_to_handed',
+ 'lead_FORMID',
+ 'lead_FORMNAME',
+ 'lead_REFERER',
+ 'lead_group_id',
+ 'lead_id',
+ 'lead_price',
+ 'lead_responsible_user_id',
+ 'lead_tags',
+ 'lead_utm_group',
+ 'lead_utm_source',
+ 'lead_Вес (грамм)*',
+ 'lead_Высота',
+ 'lead_Длина',
+ 'lead_Категория и варианты выбора',
+ 'lead_Квалификация лида',
+ 'lead_Модель телефона',
+ 'lead_Проблема',
+ 'lead_Служба доставки',
+ 'lead_Состав заказа',
+ 'lead_Ширина',
+ 'lead_будущие покупки',
+ 'sale_date'}
+```
 - Остальные колонки — автоматически обрабатываются
 
 ### Выходные данные
